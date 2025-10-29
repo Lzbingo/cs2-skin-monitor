@@ -47,56 +47,56 @@ class BuffSkinMonitor:
         if not all([self.smtp_user, self.smtp_password, self.notify_email]):
             logger.warning("邮箱配置不完整，将无法发送通知邮件")
     
-    def search_skin_id(self, skin_name):
-    """
-    搜索皮肤获取商品ID
-    """
-    try:
-        search_url = "https://buff.163.com/goods"
-        params = {
-            'game': 'cs2',
-            'page_num': '1',
-            'search': skin_name,
-        }
-        
-        logger.info(f"搜索皮肤: {skin_name}")
-        logger.info(f"请求 URL: {search_url}, 参数: {params}")  # 打印请求 URL 和参数
-        
-        response = self.session.get(search_url, params=params, timeout=15)
-        
-        if response.status_code == 200:
-            data = response.json()
-            logger.info(f"API响应状态: {data.get('code', '未知')}")
+        def search_skin_id(self, skin_name):
+        """
+        搜索皮肤获取商品ID
+        """
+        try:
+            search_url = "https://buff.163.com/goods"
+            params = {
+                'game': 'cs2',
+                'page_num': '1',
+                'search': skin_name,
+            }
             
-            if data.get('code') == 'OK' and data['data']['items']:
-                for item in data['data']['items']:
-                    if '熊刀' in item['name'] or 'Ursus' in item['name']:
-                        skin_info = {
-                            'goods_id': item['id'],
-                            'name': item['name'],
-                            'short_name': item['short_name']
-                        }
-                        logger.info(f"找到皮肤: {skin_info['name']} (ID: {skin_info['goods_id']})")
-                        return skin_info
-                    
-                first_item = data['data']['items'][0]
-                skin_info = {
-                    'goods_id': first_item['id'],
-                    'name': first_item['name'],
-                    'short_name': first_item['short_name']
-                }
-                logger.info(f"使用第一个结果: {skin_info['name']} (ID: {skin_info['goods_id']})")
-                return skin_info
+            logger.info(f"搜索皮肤: {skin_name}")
+            logger.info(f"请求 URL: {search_url}, 参数: {params}")  # 打印请求 URL 和参数
+            
+            response = self.session.get(search_url, params=params, timeout=15)
+            
+            if response.status_code == 200:
+                data = response.json()
+                logger.info(f"API响应状态: {data.get('code', '未知')}")
+                
+                if data.get('code') == 'OK' and data['data']['items']:
+                    for item in data['data']['items']:
+                        if '熊刀' in item['name'] or 'Ursus' in item['name']:
+                            skin_info = {
+                                'goods_id': item['id'],
+                                'name': item['name'],
+                                'short_name': item['short_name']
+                            }
+                            logger.info(f"找到皮肤: {skin_info['name']} (ID: {skin_info['goods_id']})")
+                            return skin_info
+                        
+                    first_item = data['data']['items'][0]
+                    skin_info = {
+                        'goods_id': first_item['id'],
+                        'name': first_item['name'],
+                        'short_name': first_item['short_name']
+                    }
+                    logger.info(f"使用第一个结果: {skin_info['name']} (ID: {skin_info['goods_id']})")
+                    return skin_info
+                else:
+                    logger.error("API返回数据为空")
+                    return None
             else:
-                logger.error("API返回数据为空")
+                logger.error(f"HTTP请求失败: {response.status_code}")
                 return None
-        else:
-            logger.error(f"HTTP请求失败: {response.status_code}")
+    
+        except Exception as e:
+            logger.error(f"搜索皮肤失败: {e}")
             return None
-
-    except Exception as e:
-        logger.error(f"搜索皮肤失败: {e}")
-        return None
 
     
     def get_buff_price(self, goods_id):
