@@ -3,13 +3,18 @@ import requests
 import os
 import json
 import smtplib
-from email.mime.text import MimeText
+from email.mime.text import MIMEText  # 修复：改为 MIMEText
 from datetime import datetime
-import time
 import logging
+import sys
+import time
 
 # 配置日志
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    stream=sys.stdout
+)
 logger = logging.getLogger(__name__)
 
 class BuffSkinMonitor:
@@ -23,6 +28,9 @@ class BuffSkinMonitor:
         self.smtp_password = os.getenv('SMTP_PASSWORD', '')
         self.notify_email = os.getenv('NOTIFY_EMAIL', '')
         
+        # 验证配置
+        self._validate_config()
+        
         # Buff API配置
         self.buff_headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -34,9 +42,14 @@ class BuffSkinMonitor:
         self.session = requests.Session()
         self.session.headers.update(self.buff_headers)
     
+    def _validate_config(self):
+        """验证必要的配置是否存在"""
+        if not all([self.smtp_user, self.smtp_password, self.notify_email]):
+            logger.warning("邮箱配置不完整，将无法发送通知邮件")
+    
     def search_skin_id(self, skin_name):
         """
-        搜索熊刀的商品ID
+        搜索皮肤获取商品ID
         """
         try:
             search_url = "https://buff.163.com/api/market/goods"
@@ -46,30 +59,48 @@ class BuffSkinMonitor:
                 'search': skin_name,
             }
             
+            logger.info(f"搜索皮肤: {skin_name}")
             response = self.session.get(search_url, params=params, timeout=15)
             
             if response.status_code == 200:
                 data = response.json()
-                if data['code'] == 'OK' and data['data']['items']:
-                    # 寻找最匹配的熊刀
+                logger.info(f"API响应状态: {data.get('code', '未知')}")
+                
+                if data.get('code') == 'OK' and data['data']['items']:
+                    # 寻找熊刀相关的商品
                     for item in data['data']['items']:
                         if '熊刀' in item['name'] or 'Ursus' in item['name']:
-                            return {
+                            skin_info = {
                                 'goods_id': item['id'],
                                 'name': item['name'],
                                 'short_name': item['short_name']
                             }
-            
-            logger.error(f"未找到皮肤: {skin_name}")
-            return None
-            
+                            logger.info(f"找到皮肤: {skin_info['name']} (ID: {skin_info['goods_id']})")
+                            return skin_info
+                    
+                    # 如果没有找到精确匹配，返回第一个结果
+                    first_item = data['data']['items'][0]
+                    skin_info = {
+                        'goods_id': first_item['id'],
+                        'name': first_item['name'],
+                        'short_name': first_item['short_name']
+                    }
+                    logger.info(f"使用第一个结果: {skin_info['name']} (ID: {skin_info['goods_id']})")
+                    return skin_info
+                else:
+                    logger.error("API返回数据为空")
+                    return None
+            else:
+                logger.error(f"HTTP请求失败: {response.status_code}")
+                return None
+                
         except Exception as e:
-            logger.error(f"搜索皮肤ID失败: {e}")
+            logger.error(f"搜索皮肤失败: {e}")
             return None
     
     def get_buff_price(self, goods_id):
         """
-        获取Buff上的最低售价
+        获取Buff最低售价
         """
         try:
             price_url = "https://buff.163.com/api/market/goods/sell_order"
@@ -79,45 +110,41 @@ class BuffSkinMonitor:
                 'page_num': '1',
             }
             
+            logger.info(f"获取价格，商品ID: {goods_id}")
             response = self.session.get(price_url, params=params, timeout=15)
             
             if response.status_code == 200:
                 data = response.json()
-                if data['code'] == 'OK' and data['data']['items']:
-                    # 获取最低价格的订单
+                
+                if data.get('code') == 'OK' and data['data']['items']:
                     lowest_order = data['data']['items'][0]
                     price = float(lowest_order['price'])
+                    logger.info(f"获取到价格: ¥{price}")
                     return price
-            
-            logger.error(f"获取价格失败，商品ID: {goods_id}")
-            return None
-            
+                else:
+                    logger.error("价格API返回数据为空")
+                    return None
+            else:
+                logger.error(f"价格请求失败: {response.status_code}")
+                return None
+                
         except Exception as e:
-            logger.error(f"获取Buff价格失败: {e}")
+            logger.error(f"获取价格失败: {e}")
             return None
     
     def get_current_price(self):
         """
-        主函数：获取当前熊刀价格
+        获取当前皮肤价格
         """
-        logger.info(f"开始搜索皮肤: {self.skin_name}")
-        
         # 第一步：搜索皮肤获取商品ID
         skin_info = self.search_skin_id(self.skin_name)
         if not skin_info:
-            logger.error("无法找到熊刀信息")
+            logger.error("无法找到皮肤信息")
             return None
         
-        logger.info(f"找到皮肤: {skin_info['name']} (ID: {skin_info['goods_id']})")
-        
-        # 第二步：通过商品ID获取价格
+        # 第二步：获取价格
         current_price = self.get_buff_price(skin_info['goods_id'])
-        
-        if current_price:
-            logger.info(f"熊刀当前价格: ¥{current_price}")
-            return current_price
-        else:
-            return None
+        return current_price
     
     def send_notification(self, current_price, skin_name):
         """发送价格提醒邮件"""
@@ -131,14 +158,14 @@ class BuffSkinMonitor:
             
             🎯 达到购买时机！
             
-            购买链接: https://buff.163.com/market/csgo
+            立即购买: https://buff.163.com/market/csgo
             监控时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             
             ---
             Buff熊刀价格监控机器人 自动发送
             """
             
-            msg = MimeText(body, 'plain', 'utf-8')
+            msg = MIMEText(body, 'plain', 'utf-8')  # 修复：改为 MIMEText
             msg['Subject'] = subject
             msg['From'] = self.smtp_user
             msg['To'] = self.notify_email
@@ -157,13 +184,15 @@ class BuffSkinMonitor:
     
     def run(self):
         """执行监控"""
-        logger.info(f"开始监控熊刀价格，目标价格: ¥{self.target_price}")
+        logger.info(f"🎯 开始监控熊刀价格，目标价格: ¥{self.target_price}")
         
         current_price = self.get_current_price()
         
         if current_price is None:
             logger.error("无法获取价格，任务结束")
             return
+        
+        logger.info(f"当前价格: ¥{current_price}")
         
         # 记录价格历史
         history_file = 'price_history.json'
@@ -192,10 +221,13 @@ class BuffSkinMonitor:
         
         # 检查价格是否达到目标
         if current_price <= self.target_price:
-            logger.info(f"🎯 价格达到目标！当前价格 ¥{current_price} <= 目标价格 ¥{self.target_price}")
-            self.send_notification(current_price, self.skin_name)
+            logger.info(f"🎉 价格达到目标！当前价格 ¥{current_price} <= 目标价格 ¥{self.target_price}")
+            if all([self.smtp_user, self.smtp_password, self.notify_email]):
+                self.send_notification(current_price, self.skin_name)
+            else:
+                logger.warning("邮箱配置不完整，无法发送通知邮件")
         else:
-            logger.info(f"价格未达目标，当前价格 ¥{current_price} > 目标价格 ¥{self.target_price}")
+            logger.info(f"⏳ 价格未达目标，当前价格 ¥{current_price} > 目标价格 ¥{self.target_price}")
 
 if __name__ == "__main__":
     monitor = BuffSkinMonitor()
