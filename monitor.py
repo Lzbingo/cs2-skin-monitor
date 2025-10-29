@@ -52,9 +52,9 @@ class BuffSkinMonitor:
         搜索皮肤获取商品ID
         """
         try:
-            search_url = "https://buff.163.com/api/market/goods"
+            search_url = "https://buff.163.com/goods"
             params = {
-                'game': 'csgo',
+                'game': 'cs2',
                 'page_num': '1',
                 'search': skin_name,
             }
